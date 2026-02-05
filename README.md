@@ -1,1 +1,1 @@
-The goal of this assignment is to mine the data and uncover patterns, relationships, and insights from the Superstore dataset by applying data cleaning, descriptive statistics, visualization, and pattern mining techniques.
+The goal of this project is to mine the data and uncover patterns, relationships, and insights from the Superstore dataset by applying data cleaning, descriptive statistics, visualization, and pattern mining techniques.
