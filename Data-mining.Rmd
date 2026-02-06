@@ -1,0 +1,545 @@
+---
+title: "Module 1 Assignment 1"
+author: "James Wooden"
+date: "`r Sys.Date()`"
+output: 
+    html_document:
+      theme: journal
+      toc: yes
+      toc_float: true
+      collapsed: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+```{r libraries}
+# libraries
+
+library(tidyverse)
+library(gt)
+library(gtsummary)
+library(gtExtras)
+library(kableExtra)
+library(scales)
+library(broom)
+theme_set(theme_minimal())
+options(digits = 2)
+```
+
+
+# Assignment 1: Mining Sales Data to Find Patterns
+
+# Assignment Overview
+
+## Purpose
+
+The goal of this assignment is to mine the data and uncover patterns, relationships, and insights from the Superstore dataset by applying data cleaning, descriptive statistics, visualization, and pattern mining techniques. 
+
+# Part 1: Data Familiarization
+
+## 1. Loading the data
+
+```{r loading data}
+# Loading the data
+df <- read.csv("Sample - Superstore.csv", encoding = "latin1")
+
+```
+
+*Table 1: dimensions*
+```{r dims}
+
+# get the dimensions and produce a table
+
+dims <-  data.frame(Rows = dim(df)[1],
+           Columns = dim(df)[2])
+gt(dims)  |> 
+  tab_header(
+    title = "Dataset Dimensions"
+  ) |> 
+  tab_options(table.align = 'left')
+```
+
+
+## 2-3. Identify categorical, numerical, and dateime variables | Check for Missing Values
+
+```{r overview }
+# summary stats for all variables in the df
+df[, c(names(df)[sapply(df, is.numeric)],
+      names(df)[!sapply(df, is.numeric)])] |> 
+  gt_plt_summary() |> 
+  tab_header(title = "Fig. 1: Superstore Dataset",
+             subtitle = "Data Types and Summary Statistics")
+```
+
+**Analysis**
+
+There no missing values in any column. Row.Id is assigned as a numeric data type but should be categorical(nominal). (It can likely be dropped without affecting the data set). Postal code should also be categorical, as it is a nominal data type.
+
+Order.Date and Shipment.Date are classified as categorical but should be date-time. 
+
+**Cleaning** 
+
+Order.ID is dropped from the data set. Order.Date and Shipment.Date are converted to date-time data types. Postal code is converted to a character data type and 0 is added to the beginning of values that are fewer than 5 digits.
+
+```{r cleaning}
+# clean data
+
+df$Order.Date <- mdy(df$Order.Date)
+df$Ship.Date <- mdy(df$Ship.Date)
+
+# add 0 to front of 4-digit zips
+# convert ot categorical
+df$Postal.Code <- as.character(df$Postal.Code) 
+
+# add "0" to the beginning of any postal codes that have fewer than 5 digits
+df <- df |> 
+  mutate(Postal.Code = str_pad(Postal.Code, width = 5, side = 'left', pad = '0'))
+
+# drop Row.Id
+df <- df |> 
+  select(- Row.ID)
+```
+
+
+
+# Part 2: Descriptive Statistics 
+
+## 1. Compute Summary Statistics for numerical variables. 
+
+*Table 2: Summary Statistics for Numeric Values*
+```{r}
+# numeric summary stats
+df[, names(df)[sapply(df, is.numeric)]] |> 
+  tbl_summary(
+    type = all_continuous() ~ "continuous2",
+    statistic = all_continuous() ~ c(
+      "{mean} ({sd})",
+      "{median} ({p25}, {p75})",
+      "{min}, {max}"
+    ),
+    digits = all_continuous() ~ 2
+  ) |>
+  modify_caption("**Summary Statistics for Numeric Variables**") |>
+  bold_labels() |> 
+  as_gt() |> 
+  tab_options(table.align = 'left')
+```
+**Analysis**
+
+The distribution of Sales is right skewed with a mean much larger than its median and a wide standard deviation. 
+
+The distribution of Quantity looks like a gamma distribution with a right skew but means and median close together in value. 
+
+The distribution of Discount looks normal with identical mean, median, and standard deviation.
+
+Profit has median below the mean and most likely is right-skewed. 
+
+## 2. Explore frequency counts for categorical variables
+
+```{r}
+# product counts
+df |> 
+  group_by(Category) |> 
+  summarize(Count = n()) |> 
+  ggplot(aes(x = Category, y = Count))+
+  geom_col(fill = 'blue3', alpha = 0.7, color = 'black')+
+  geom_text(aes(label = Count), vjust = -0.3)+
+  labs(title = 'Fig. 2: Product Category Counts',
+       x = "",
+       y = '')+
+  scale_y_continuous(limits = c(0,7000))
+```
+
+
+```{r}
+# sub product counts
+df |> 
+  group_by(Sub.Category) |> 
+  summarise(Count = n()) |> 
+  arrange(desc(Count)) |> 
+  ggplot(aes(x = reorder(Sub.Category, Count), y=Count))+
+  geom_col(fill = 'blue3', color = 'black', alpha = 0.7)+
+  coord_flip()+
+  geom_text(aes(label=Count), hjust = 1.2, color='lightgray')+
+  labs(title = "Fig. 3: Product Subcategory Counts",
+       x="",
+       y="")
+```
+
+The largest selling subcategory by volume is Binders, followed closely by Paper. The lowest volume subcategories are Copiers and Machines, likely due to their size and durability.
+
+```{r}
+# Orders by region
+df |> 
+  group_by(Region) |> 
+  summarize(Count = n()) |> 
+  ggplot(aes(x = Region, y = Count))+
+  geom_col(fill = 'blue3', alpha = 0.75, color = 'black')+
+  geom_text(aes(label = Count), vjust = -0.3)+
+  labs(title = "Fig. 4: Orders by Region",
+       y="")
+```
+
+
+The West region fulfills the most orders, followed by the east. The west makes up 32% of all orders. The West and East make up 60% of all orders. 
+
+```{r}
+# Category counts by region
+ggplot(df, aes(x = Category, fill=Region))+
+  geom_bar(position = 'dodge', color='black')+
+  geom_text(aes(label = after_stat(count)),
+            stat = "count",
+            vjust = -0.35,
+            position = position_dodge(0.9))+
+  scale_fill_brewer(palette = 'Blues')+
+  labs(title= "Fig. 5: Category Counts by Region",
+       x="",
+       y="")+
+  theme(legend.position = 'top',
+        legend.direction = 'horizontal')
+```
+
+When broken down by category we don't see anything unexpected. The West and East Regions make up a bulk of all orders, with Office Supplies as the largest category.
+
+# Part 3: Pattern Mining and Analysis
+
+### 1. Which regions contribute the most to overall profit? Are there regions that consistently underperform?
+
+```{r}
+
+# total profit by region
+df |> 
+  group_by(Region) |> 
+  summarize("Total Profit" = sum(Profit)) |> 
+  ggplot(aes(x = Region, y = `Total Profit`))+
+  geom_col(color = "black", fill="blue3", alpha = 0.74)+
+  geom_text(aes(label =dollar(round(`Total Profit`, digits=0))),
+            vjust = -0.3)+
+  labs(title = "Fig. 6: Total Profit by Region",
+       x = "",
+       y="")+
+  scale_y_continuous(labels = label_dollar(scale = 1/1000, suffix = "k"))
+```
+
+The West and East Region produce the highest profits, 
+
+The count of orders for the West region is higher than any other region, leading to the highest total profit. It may be useful to look at per-order profit per each region.
+
+*Table 3: Profit per Order by Region*
+```{r}
+df |> 
+  group_by(Region) |> 
+  summarise("Total Profit" = sum(Profit),
+            Orders = n(),
+            "Profit/Order" = sum(Profit)/n()) |> 
+  gt() |> 
+  tab_options(table.align = 'left')
+```
+
+Even when looking at the amount of Profit per Order, the West outperforms the other regions at $34 per order, with the East in a close second place at 32. The South has the *fewest* orders but has a high profit-per-order value (29). The South Region may be selling higher volumes of larger, high-cost itmes.
+
+### 2. Which product categories generate the highest profit margins?
+
+```{r}
+# Profit by category
+df |> 
+  group_by(Category) |> 
+  summarise("Total Profit" = round(sum(Profit))) |> 
+  ggplot(aes(x = Category, y = `Total Profit`))+
+  geom_col(fill = "blue3", color ="black", alpha = 0.74)+
+  geom_text(aes(label =dollar(round(`Total Profit`, digits=0))),
+            vjust = -0.3)+
+  labs(title = "Fig. 7: Total Profit by Category",
+       x = "", 
+       y = "")+
+  scale_y_continuous(labels = label_dollar(scale = 1/1000, suffix = "k"))
+```
+
+### 3. How does customer segment influence average order value and quantity purchased?
+
+
+*Table 4: Average Sales and Quantity by Segment*
+```{r}
+# sum stats table for Segment
+df |> 
+  group_by(Segment) |> 
+  summarise("Average Sales" = mean(Sales),
+            "Average Quantity" = mean(Quantity)) |> 
+  gt() |> 
+  tab_header(title = "Fig. 8: Average Sales and Quantity by Segment") |> 
+  tab_options(table.align = "left")
+```
+
+The Home Office Segment has the highest Average Sales, about $240 per order. Average Quantity is similar across all Segments, about 3.8 products per order.
+
+### 4. Are there geographic regions with consistantly low profitability or sales?
+
+```{r}
+# line chart for profits by region per year
+df |> 
+  mutate(Year = year(Order.Date)) |> 
+  group_by(Region, Year) |> 
+  summarise(Profit = sum(Profit)) |> 
+  ggplot(aes(x = Year, y = Profit, color = Region))+
+  geom_line(size = 1)+
+  labs(title = "Fig. 9: Regional Profits by Year",
+       x = "",
+       y = "")+
+  scale_y_continuous(labels = label_dollar(scale = 1/1000, suffix = "k"))
+```
+
+The Central and South regions have under performed compared to the West and East. It may be useful to isolate 2016 data and mine for further insights as all regions performed relatively equally for that year, with Central and South dropping the following year.
+
+### 5. What is the relationship between discount levels and profit across different sub-categories?
+
+```{r}
+# make a table with sub category stats
+df |> 
+  group_by(Sub.Category) |> 
+  summarise("Mean Discount" = mean(Discount),
+            "Mean Profit" = mean(Profit),
+            "Correlation" = cor((Discount), (Profit)),
+            "Ratio1" =  mean(Discount)/mean(Profit),
+            "Ratio2" = mean(Profit)/mean(Discount),
+            "Metric1" = mean(Discount)*mean(Profit)) |> 
+  # create a horizontal bar chart 
+  ggplot(aes(x = reorder(Sub.Category, Correlation), y = Correlation))+
+  geom_col(fill = "darkred", color = "black", alpha = 0.75)+
+  coord_flip()+
+  scale_y_reverse()+
+  labs(title = "Fig. 10:Correlation of Discount to Profit",
+       x = "",
+       y = "Correlation")+
+  geom_text(aes(label=round(Correlation,digits=2)), hjust = 1.2, color='lightgray')
+```
+
+Furniture profits are the most affected by discount rates, specifically Tables, Bookcases, and Chairs. This shouldn't be a surprise as we saw low profits in this category (see fig. 7). 
+
+
+### 6. How does shipping mode correlate with delivery time and total order value?
+
+*Table 5: Shipping Mode Statistics*
+```{r}
+# table for Shipping Mode stats for Delivery/Order/Value
+df |> 
+  mutate(Delivery.Time = Ship.Date - Order.Date) |> 
+  group_by(Ship.Mode) |> 
+  summarise(Count = n(),
+            "Average Delivery Time" = round(mean(Delivery.Time), digits = 3),
+            "Average Value" = (mean(Sales)),
+            "Average Quantity" = mean(Quantity)) |> 
+  gt() |> 
+  tab_header(title = "Fig. 11: Shipping Mode Statistics") |> 
+  tab_options(table.align = 'left')
+```
+
+The is little difference in the average Order value per Shipping Mode (p=0.95). And there is little difference between the average Quantity of items shipped per order when separated by Shipping Mode (p = 0.06), with the exception of maybe Same Day delivery as customers may have to pay more to ship same day so they order fewer items, or these are "emergency" orders where a client only needs one thing.
+
+```{r}
+aov_results <-  aov(Sales ~ Ship.Mode, data = df)
+aov_results <-  aov(Quantity ~ Ship.Mode, data = df)
+
+```
+
+
+```{r}
+# barchart average days for shipment. with CI
+df |> 
+  mutate(Delivery.Time = Ship.Date - Order.Date) |> 
+  group_by(Ship.Mode) |> 
+  summarise(Mean = mean(Delivery.Time),
+            SD = sd(Delivery.Time),
+            Count = n(),
+            SE = sd(Delivery.Time)/sqrt(n())) |> 
+  ggplot(aes(x = Ship.Mode, y = Mean))+
+  geom_col(width = 0.5, fill = 'blue3', color = 'black', alpha = 0.77)+
+  geom_errorbar(aes(ymin = Mean - SE*1.96, ymax = Mean+SE*1.96), width = 0.1)+
+  labs(title = "Fig. 12: Average Length in Days Between Order and Shipment",
+       subtitle = "95% CI",
+       x = "Shipping Mode",
+       y = "Days")+
+  geom_text(aes(label = round(Mean, digits = 2), vjust = -0.5))
+```
+
+
+
+### 7. Are there seasonal patterns in customer purchasing behavior across segments?
+
+```{r}
+# time series for sales by customer segment
+df |> 
+  mutate(Month = floor_date(Order.Date, 'month')) |> 
+  group_by(Month, Segment) |> 
+  summarise(Sales = sum(Sales), .groups = 'drop') |> 
+  ggplot(aes(x = Month, y = Sales, color = Segment))+
+  facet_wrap(~Segment, ncol=1)+
+  geom_line()+
+  geom_smooth(se = FALSE, method = lm)+
+  scale_x_date(date_breaks = "2 months",
+                date_labels = "%b")+
+  scale_y_continuous(labels = label_dollar(scale = 1/1000, suffix = "k"))+
+  theme(legend.position = 'none',
+         axis.text.x = element_text(angle = 45, hjust = 1))+
+  labs(title = "Fig 13: Monthly Total Sales by Segment",
+       subtitle = "2015-2018 | Includes Regression Line",
+       x = "",
+       y = "")
+```
+
+There is evidence of seasonality with increases in sales for all segments around November and December and decreased sales in January and February. 
+
+### 8. How do discounts affect profit margins across categories?
+
+*Table 6: Discount and Profit by Category*
+```{r}
+# Table for Category stats
+df |> 
+  group_by(Category) |> 
+  summarise(Count = n(),
+            "Average Discount" = mean(Discount),
+            "Average Profit" = mean(Profit)) |> 
+  gt() |> 
+  tab_header(title ="Discount and Profit by Category") |>
+  tab_options(table.align = 'left')
+```
+
+The Category with the largest discount is Furniture, which also has the lowest average profit, so it is arguable that the large discount is eating into profits. Technology has the highest profit but lowest average discount, which supports this argument, but the results may be a little skewed since fewer items in the Technology category are sold overall. 
+
+```{r}
+# Bar chart for Profit by category
+df |> 
+  group_by(Category) |> 
+  summarise(Count = n(),
+            "Average Discount" = mean(Discount),
+            "Average Profit" = mean(Profit)) |> 
+  ggplot(aes(x = Category, y = `Average Profit`))+
+  geom_col(fill = 'blue3', color='black', alpha = 0.75)+
+  geom_text(aes(label = paste("$", format(round(`Average Profit`, digits=2),nsmall=2)), vjust = -0.5))+
+  geom_text(aes(label = paste("Dicount: ", round(`Average Discount`, digits=2))), 
+            vjust = 1.5, color = 'lightgrey')+
+  labs(title = "Fig. 14: Average Profit and Discount by Category",
+       x = "")+
+  scale_y_continuous(label = label_dollar())
+```
+
+
+### 9. Are there noticeable seasonal trends with sales volumes?
+
+
+```{r}
+# create time series table
+ts <- df |> 
+  mutate(Month = floor_date(Order.Date, 'month')) |> 
+  group_by(Month) |> 
+  summarise(Quantity = sum(Quantity),
+            Count = n(),
+            Difference = sum(Quantity) - n(),
+            .groups = 'drop') 
+```
+
+```{r}
+
+# plot on line chart
+ggplot(ts, aes(x = Month)) +
+  geom_col(aes(y = Difference), fill = "lightgrey", color="grey",alpha= 0.2, width = 20)+
+  geom_hline(yintercept = mean(ts$Difference), color = 'grey', linetype = "dashed")+
+  geom_line(aes(y = Count))+
+  geom_line(aes(y = Quantity), color = 'forestgreen')+
+  annotate('text', label = "Quantity", x = as.Date("2017-11-01") , y=1950, color = 'forestgreen')+
+  annotate('text', label = "Orders", x = as.Date("2017-11-01"), y = 525)+
+  annotate("text", label = "Mean Difference\n in Order/Quantity\n Volume", x = as.Date("2014-03-01"),
+           y = 850, color= 'darkgrey')+
+  labs(title = "Fig. 15: Orders and Quantity Volume",
+       subtitle = "With Order to Volume Differences | 2014 - 2018",
+       x = "",
+       y = "")+
+  scale_x_date(date_breaks = "2 months",
+                date_labels = "%b")
+```
+
+As with sales, we see a seasonal increase in both orders and total items shipped (Quantity) in November and December and drops in volume in January and February. There are yearly increases in orders in September, and relatively lower sales in October compared to surrounding months. 
+
+When sales drop there is a concurrent drop in the number of items per order.
+
+Is the discount rate affected by seasonality?
+
+```{r}
+
+# time series of Discount by month
+ df |> 
+  mutate(Month = floor_date(Order.Date, 'month')) |> 
+  group_by(Month) |> 
+  summarise("Mean Discount" = mean(Discount)) |> 
+  ggplot(aes(x = Month, y = `Mean Discount`)) +
+  geom_line()+
+  geom_hline(yintercept = mean(df$Discount), color = "darkgrey", linetype = "dashed")+
+  annotate("text", label = "Average Discount: 0.16",
+           x = as.Date("2014-05-10"), y = 0.165,
+           color = "gray", alpha = 0.9)+
+  scale_x_date(date_breaks = "2 months",
+                date_labels = "%b") +
+  labs(title = "Fig. 16: Discount Rate by Month",
+       subtitle = "2014-2018")  
+  
+```
+
+There does seem to be a correlation between low Discount Rates and low orders and items-per-order rates as evidenced by the drop in both in February 2016. Generally Discounts are offered during high-sales seasons, primarily taking place in November and December.
+
+### 10. Is there a relationship between shipping mode and profitability or order size?
+
+*Table 7: Shipping Mode Statistics*
+```{r}
+# create df for shipping mode and output a table
+sm <- df |> 
+  group_by(Ship.Mode) |> 
+  summarise("Count" = n(),
+            "Mean Profit" = mean(Profit),
+            "Mean Order Size" = mean(Quantity))
+
+gt(sm) |> 
+  tab_header(title = "Shipping Mode Statistics") |> 
+  tab_options(table.align = 'left')
+```
+
+```{r}
+# Bar chart for profit by shipping mode with avg Order quantity
+ggplot(sm, aes(Ship.Mode, `Mean Profit`)) +
+  geom_col(fill = "blue3", color = "black", alpha = 0.75) +
+  geom_text(aes(label = paste("$", round(`Mean Profit`, digits = 2))), vjust = -0.4) +
+  geom_text(aes(label = paste("Avg Quantity", round(`Mean Order Size`, digits=2))), vjust = 1.5, color = "gray")+
+  labs(title = "Fig. 17: Average Profit by Shipping Mode",
+       x = "",
+       y = "") +
+  scale_y_continuous(labels = label_dollar(), limits = c(0, 40))
+```
+
+There is little variation in the average order quantity across shipping modes. The most profitable mode is First Class, which has an average of $2.30 greater than the next highest average. But there is no significant difference between average profit between shipping modes (p = 0.93, F = 0.15).
+
+*Table 8: Anova Results*
+```{r}
+# anova for difference in avg profit by ship mode
+anova_result <- aov(Profit ~ Ship.Mode, data = df)
+ar <- summary(anova_result) 
+tidy(anova_result) |> 
+  kable(digits = 2, caption = "ANOVA Results: Profit by Shipping Mode") |> 
+  kable_styling(bootstrap_options = c("striped", "hover"), 
+                full_width = FALSE)
+```
+
+
+# Appendix
+
+## Use of AI
+
+The primary AI LLM used was Claude.AI. The AI was used for debugging and the building some of the more complex plots, and for general search/query requests. At no point was the actual data set loaded/fed to the AI, nor were results or assessments made by the AI used directly in the assignment. 
+
+## Works Consulted
+
+Chang, Winston, 2018. *R Graphics Cookbook, 2ed*. O'Reilly Media.
+
+## Code used for this report
+
+```{r ref.label=knitr::all_labels(), echo=TRUE, eval=FALSE}
+```
